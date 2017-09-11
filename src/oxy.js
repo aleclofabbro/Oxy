@@ -9,9 +9,10 @@ const default_lens = path => R.lens(R.path(path), R.assocPath(path))
 
 const oxy = (init_root_value, root_obs) => {
 
-  const init_value = init_root_value
-  let invalidated, current_value = init_root_value
   const root_stream = new Rx.Subject()
+  const init_value = init_root_value
+  let current_root_value = init_root_value
+  let invalidated =false
 
   const make_oxy = (oxy_path, lens) => {
     lens = lens || default_lens(oxy_path)
@@ -26,10 +27,10 @@ const oxy = (init_root_value, root_obs) => {
         return _my_stream
       }
     }
-    
-    const get_value = () => R.view(lens, invalidated ? init_root_value : current_value)
-    
-    const _oxy = new Proxy(current_value, {
+
+    const get_value = () => R.view(lens, invalidated ? init_root_value : current_root_value)
+
+    const _oxy = new Proxy(get_value(), {
       get: function(target, prop_name, receiver) {
         if(SYM.value === prop_name){
           return get_value()
@@ -42,7 +43,7 @@ const oxy = (init_root_value, root_obs) => {
         }
         const prop = R.prop(prop_name, get_value())
         if(prop && 'object' === typeof prop){
-          const _prop_oxy = prop[SYM.oxy] = prop[SYM.oxy] || make_oxy(oxy_path.concat(prop_name))
+          const _prop_oxy = /* prop[SYM.oxy] = prop[SYM.oxy] || */ make_oxy(oxy_path.concat(prop_name))
           return  _prop_oxy
         }else{
           return prop
@@ -51,12 +52,12 @@ const oxy = (init_root_value, root_obs) => {
       set: function(target, prop_name, value, receiver) {
         if([SYM.stream,SYM.oxy,SYM.value].includes(prop_name)){
           get_value()[prop_name] = value
-          return 
+          return
         }
         const next_val = R.assoc(prop_name, value, get_value())
         root_stream.next({
-          type: 'set', 
-          path: oxy_path, 
+          type: 'set',
+          path: oxy_path,
           value: next_val
         })
       },
@@ -75,17 +76,17 @@ const oxy = (init_root_value, root_obs) => {
   }
   const root_oxy = make_oxy([])
   const upd_subscr = root_stream
-    .do(ev=>console.log('root:set:',ev, current_value))
-    .do(ev=>current_value = R.assocPath(ev.path, ev.value, current_value))
+    .do(ev=>console.log('root:set:',ev, current_root_value))
+    .do(ev=>current_root_value = R.assocPath(ev.path, ev.value, current_root_value))
     .subscribe()
-  
-  root_stream  
+
+  root_stream
     .auditTime(0)
     .do(ev=>console.log('root:update:'))
     .subscribe(ev => {
-      console.log('invalidated:', current_value)
+      console.log('invalidated:', current_root_value)
       invalidated = true
-      oxy(current_value, root_obs)
+      oxy(current_root_value, root_obs)
       root_stream.complete()
     })
   root_obs(root_oxy)
